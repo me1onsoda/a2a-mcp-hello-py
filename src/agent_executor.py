@@ -5,23 +5,15 @@ from a2a.server.events import EventQueue  # type: ignore
 from a2a.server.tasks import TaskUpdater  # type: ignore
 from a2a.types import Part, TaskState, TextPart  # type: ignore
 from a2a.utils import new_agent_text_message, new_task  # type: ignore
-from agent import HelloMCPAgent  # type: ignore
+from agent import WeatherMCPAgent  # type: ignore
 
 
-class HelloMCPAgentExecutor(AgentExecutor):
-    """A2A Agent Executor that uses MCP Hello Server."""
-
+class WeatherMCPAgentExecutor(AgentExecutor):
     def __init__(self, mcp_url: str):
-        self.agent = HelloMCPAgent(mcp_url)
+        self.agent = WeatherMCPAgent(mcp_url)
 
-    async def execute(
-        self,
-        context: RequestContext,
-        event_queue: EventQueue,
-    ) -> None:
-        """Execute the agent with user input."""
+    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         user_message = context.get_user_input() if hasattr(context, 'get_user_input') else ""
-        
         if not user_message and context.message and context.message.parts:
             for part in context.message.parts:
                 if hasattr(part, 'text'):
@@ -32,47 +24,30 @@ class HelloMCPAgentExecutor(AgentExecutor):
                     break
 
         if not user_message:
-            user_message = "친구"
+            user_message = "서울"
 
         task = context.current_task or new_task(context.message)
         await event_queue.enqueue_event(task)
-
         updater = TaskUpdater(event_queue, task.id, task.context_id)
 
         try:
             await updater.update_status(
                 TaskState.working,
-                new_agent_text_message(
-                    "MCP 서버에 인사 요청 중...",
-                    task.context_id,
-                    task.id
-                ),
+                new_agent_text_message(f"'{user_message}' 날씨 조회 중...", task.context_id, task.id),
             )
 
+            # 날씨 조회 실행
             result = await self.agent.invoke(user_message)
 
-            await updater.add_artifact(
-                [Part(root=TextPart(text=result))],
-                name="greeting",
-            )
-
+            await updater.add_artifact([Part(root=TextPart(text=result))], name="weather_info")
             await updater.complete()
 
         except Exception as e:
             await updater.update_status(
                 TaskState.failed,
-                new_agent_text_message(
-                    f"오류 발생: {str(e)}",
-                    task.context_id,
-                    task.id
-                ),
+                new_agent_text_message(f"오류: {str(e)}", task.context_id, task.id),
                 final=True,
             )
-
-    async def cancel(
-        self,
-        context: RequestContext,
-        event_queue: EventQueue,
-    ) -> None:
-        """Cancel is not supported."""
+            
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         raise Exception("cancel not supported")
